@@ -1,0 +1,13 @@
+name = "bookeasy-frontend" # Change to your worker name
+main = "worker/worker.js"
+compatibility_date = "2024-10-01"
+
+[vars]
+DEFAULT_DOCUMENT = "index.html"
+
+[[r2_buckets]]
+binding = "STATIC_BUCKET"
+bucket_name = "bookeasy-frontend" # Change to your R2 bucket name
+
+[observability]
+enabled = true

@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #0ea5e9;
+  --brand-primary: var(--brand);
+}
+
+body { @apply bg-gray-50 text-gray-900; }
+
+/* Brand utility classes used across the app */
+.text-brand { color: var(--brand-primary); }
+.bg-brand { background-color: var(--brand-primary); }
+.border-brand { border-color: var(--brand-primary); }
+.ring-brand { box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 35%, transparent); }
+
+/* Subtle card look */
+.card { @apply bg-white border border-gray-200 rounded-xl shadow-sm; }
+
+/* Form controls base styling */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="date"],
+select,
+textarea {
+  @apply border border-gray-300 rounded-md px-3 py-2 h-10 text-sm focus:outline-none focus:ring-2 focus:ring-offset-0 focus:ring-sky-300 focus:border-sky-400;
+}
+
+button.btn-primary {
+  @apply bg-gray-900 text-white rounded-md px-4 h-10 text-sm font-medium hover:bg-black transition-colors disabled:opacity-60;
+}
+
+button.btn-ghost {
+  @apply text-gray-700 hover:text-gray-900 text-sm;
+}
