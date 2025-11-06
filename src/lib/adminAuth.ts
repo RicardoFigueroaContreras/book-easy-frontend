@@ -7,8 +7,18 @@ try {
   if (saved) CURRENT_BIZ_SLUG = saved
 } catch {}
 
+// Initialize ACCESS_TOKEN from localStorage if available
+try {
+  const savedToken = localStorage.getItem('accessToken')
+  if (savedToken) ACCESS_TOKEN = savedToken
+} catch {}
+
 export function setAccessToken(token: string | null) {
   ACCESS_TOKEN = token
+  try {
+    if (token) localStorage.setItem('accessToken', token)
+    else localStorage.removeItem('accessToken')
+  } catch {}
 }
 
 export function getAccessToken(): string | null {
@@ -17,6 +27,7 @@ export function getAccessToken(): string | null {
 
 export function clearTokens() {
   ACCESS_TOKEN = null
+  try { localStorage.removeItem('accessToken') } catch {}
 }
 
 export function bearerAuthHeader(): HeadersInit | undefined {

@@ -19,7 +19,7 @@ async function req(path: string, init?: RequestInit) {
     ...(bearerAuthHeader() || {}),
     ...(init?.headers || {} as any)
   }
-  let res = await fetch(`${API_BASE}${path}`, { ...init, headers })
+  let res = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: 'include' })
   if (res.status === 401) {
     try {
       await refreshAccessToken()
@@ -28,7 +28,7 @@ async function req(path: string, init?: RequestInit) {
         ...(bearerAuthHeader() || {}),
         ...(init?.headers || {} as any)
       }
-      res = await fetch(`${API_BASE}${path}`, { ...init, headers: retryHeaders })
+  res = await fetch(`${API_BASE}${path}`, { ...init, headers: retryHeaders, credentials: 'include' })
     } catch (e) {
       clearTokens()
       throw e
