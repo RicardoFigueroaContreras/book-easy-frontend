@@ -9,6 +9,10 @@ export default function AdminLayout() {
   const loc = useLocation()
   const [tokenPresent, setTokenPresent] = useState(!!getAccessToken())
   const [checking, setChecking] = useState(true)
+  const [diagOpen, setDiagOpen] = useState(false)
+  const [diagLoading, setDiagLoading] = useState(false)
+  const [diagResult, setDiagResult] = useState<any | null>(null)
+  const [diagError, setDiagError] = useState<string | null>(null)
   // Bootstrap access token from refresh cookie if available
   useEffect(() => {
     const maybeRedirect = () => {
@@ -67,6 +71,36 @@ export default function AdminLayout() {
           <div className="text-xs text-gray-500">Business</div>
           <div className="font-semibold">{businessSlug}</div>
         </div>
+        <div className="mb-4">
+          <button
+            className="btn-outline text-xs px-2 py-1"
+            onClick={async () => {
+              setDiagOpen(true)
+              setDiagLoading(true)
+              setDiagError(null)
+              setDiagResult(null)
+              try {
+                const token = getAccessToken()
+                const headers: Record<string,string> = { 'Accept': 'application/json' }
+                if (token) headers['Authorization'] = `Bearer ${token}`
+                const [pubRes, admRes] = await Promise.all([
+                  fetch(`${API_BASE}/api/public/whoami`, { headers, credentials: 'include' }),
+                  fetch(`${API_BASE}/api/admin/${businessSlug}/whoami`, { headers, credentials: 'include' }),
+                ])
+                const pubJson = await pubRes.json().catch(() => ({ error: 'invalid-json' }))
+                const admJson = await admRes.json().catch(() => ({ error: 'invalid-json' }))
+                setDiagResult({
+                  public: { status: pubRes.status, body: pubJson },
+                  admin: { status: admRes.status, body: admJson },
+                })
+              } catch (e: any) {
+                setDiagError(e?.message || 'diagnose-failed')
+              } finally {
+                setDiagLoading(false)
+              }
+            }}
+          >Diagnose</button>
+        </div>
         <nav className="grid gap-1 text-sm">
           {[
             ['services','Services'],
@@ -86,6 +120,36 @@ export default function AdminLayout() {
         {/* Account actions moved to top header; nothing here */}
       </aside>
       <section>
+        {diagOpen && (
+          <div className="card p-3 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-medium">Diagnostics</div>
+              <button className="btn-ghost text-xs" onClick={() => setDiagOpen(false)}>Close</button>
+            </div>
+            {diagLoading && (
+              <div className="text-xs text-gray-600" aria-busy="true">Running checks…</div>
+            )}
+            {diagError && (
+              <div className="text-xs text-red-600">{diagError}</div>
+            )}
+            {diagResult && (
+              <div className="grid md:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <div className="font-semibold mb-1">/api/public/whoami</div>
+                  <pre className="bg-gray-50 p-2 rounded overflow-auto max-h-64">
+                    {JSON.stringify(diagResult.public, null, 2)}
+                  </pre>
+                </div>
+                <div>
+                  <div className="font-semibold mb-1">/api/admin/{businessSlug}/whoami</div>
+                  <pre className="bg-gray-50 p-2 rounded overflow-auto max-h-64">
+                    {JSON.stringify(diagResult.admin, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <Outlet />
       </section>
     </div>
