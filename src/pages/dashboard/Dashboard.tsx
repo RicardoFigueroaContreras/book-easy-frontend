@@ -213,7 +213,7 @@ export default function Dashboard() {
       const all: any[] = await AdminApi.listTimeOff(businessSlug!)
       const start = new Date(startIso).getTime()
       const end = new Date(endIso).getTime()
-      const bizWide = (all || []).filter((t: any) => !t.provider && !t.providerId && (t.business || t.businessId))
+  const bizWide = (all || []).filter((t: any) => !t.provider && !t.providerId && (t.business || t.businessId))
       const overlappingBiz = bizWide.filter((t: any) => {
         const s = new Date(t.startTime || t.start || t.begin || t.from).getTime()
         const e = new Date(t.endTime || t.end || t.finish || t.to).getTime()
@@ -229,11 +229,9 @@ export default function Dashboard() {
         overlap: false,
         editable: false,
       }))
-      // Provider-specific blocks (only show when a provider is selected to avoid clutter)
+      // Provider-specific blocks: show all (visual legend distinguishes them)
       const provBlocksAll = (all || []).filter((t: any) => (t.providerId || t.provider?.id))
-      const selectedProvId = providerId ? Number(providerId) : null
-      const provFiltered = provBlocksAll.filter((t: any) => selectedProvId ? (Number(t.providerId || t.provider?.id) === selectedProvId) : false)
-      const overlappingProv = provFiltered.filter((t: any) => {
+      const overlappingProv = provBlocksAll.filter((t: any) => {
         const s = new Date(t.startTime || t.start || t.begin || t.from).getTime()
         const e = new Date(t.endTime || t.end || t.finish || t.to).getTime()
         return !(isNaN(s) || isNaN(e)) && s < end && e > start
@@ -333,6 +331,17 @@ export default function Dashboard() {
               >Agenda</Button>
             </div>
           </div>
+          {/* Legend for block types */}
+          <div className="mt-3 flex items-center gap-4 text-[11px] text-gray-600">
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-8 h-3 border be-blocked" style={{ borderColor: '#d1d5db' }} />
+              <span>Business-wide block</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-8 h-3 border be-blocked-prov" style={{ borderColor: '#d1d5db' }} />
+              <span>Provider block</span>
+            </div>
+          </div>
         </Card>
       </div>
 
@@ -385,9 +394,12 @@ export default function Dashboard() {
           events={[...events, ...blockEvents]}
           eventDidMount={(info) => {
             // Add tooltip for blocked background events
-            if ((info.event.classNames || []).includes('be-blocked')) {
+            const classes = info.event.classNames || []
+            if (classes.includes('be-blocked') || classes.includes('be-blocked-prov')) {
               const reason = (info.event.extendedProps as any)?.reason
-              info.el.setAttribute('title', reason ? `Blocked: ${reason}` : 'Blocked')
+              const provName = (info.event.extendedProps as any)?.providerName
+              const base = provName ? `Blocked (${provName})` : 'Blocked'
+              info.el.setAttribute('title', reason ? `${base}: ${reason}` : base)
               // Make background event clickable for deletion
               info.el.style.pointerEvents = 'auto'
               info.el.style.cursor = 'pointer'
@@ -620,7 +632,7 @@ export default function Dashboard() {
           </div>
           {isAdmin && (
             <div className="bg-blue-50 border border-blue-200 text-xs text-blue-800 rounded p-2">
-              Admin: You can block a business-wide window using the button below.
+              Admin: You can block a business-wide or provider-specific window using the button below.
             </div>
           )}
           <div className="grid md:grid-cols-2 gap-3">
@@ -697,7 +709,12 @@ export default function Dashboard() {
                   return
                 }
                 // Prevent creating inside a business-wide block
-                if (quickStart && blockWindows.some(b => b.start <= quickStart && quickStart < b.end)) {
+                if (quickStart && blockWindows.some(b => {
+                  if (b.providerId) {
+                    return quickProviderId && Number(quickProviderId) === b.providerId && b.start <= quickStart && quickStart < b.end
+                  }
+                  return b.start <= quickStart && quickStart < b.end
+                })) {
                   setQError('Selected time is blocked business-wide')
                   return
                 }
@@ -719,6 +736,7 @@ export default function Dashboard() {
                     const start = view.currentStart.toISOString()
                     const end = view.currentEnd.toISOString()
                     fetchEvents(start, end)
+                    fetchBlocks(start, end)
                   }
                   setQuickOpen(false)
                   try { (calRef.current as any)?.getApi?.().unselect?.() } catch {}
@@ -740,7 +758,7 @@ export default function Dashboard() {
       <Modal
         open={blockOpen}
         onClose={() => setBlockOpen(false)}
-        title="Block time (business-wide)"
+  title="Block time"
         size="lg"
       >
         <div className="grid gap-3">
@@ -790,13 +808,18 @@ export default function Dashboard() {
                   })
                   const api = (calRef.current as any)?.getApi?.()
                   const view = api?.view
-                  if (view) fetchEvents(view.currentStart.toISOString(), view.currentEnd.toISOString())
+                  if (view) {
+                    const start = view.currentStart.toISOString()
+                    const end = view.currentEnd.toISOString()
+                    fetchEvents(start, end)
+                    fetchBlocks(start, end)
+                  }
                   setBlockOpen(false)
                 } catch (err: any) {
                   setBlockError(err?.message || 'Failed to block time')
                 }
               }}
-            >Block</Button>
+              >Block</Button>
           </div>
         </div>
       </Modal>
