@@ -13,9 +13,29 @@ type Service = { id: number; name: string; durationMinutes: number; priceCents: 
 type ServiceWithBuffer = Service & { bufferBefore?: number; bufferAfter?: number }
 type Provider = { id: number; name: string }
 
-const STRINGS: Record<string, { title: string; welcome: string; service: string; provider: string; date: string; noAvail: string; confirm: string }> = {
-  es: { title: 'Reserva', welcome: 'Reserva tu cita', service: 'Servicio', provider: 'Profesional (opcional)', date: 'Fecha', noAvail: 'No hay disponibilidad', confirm: 'Confirmar' },
-  en: { title: 'Booking', welcome: 'Book your appointment', service: 'Service', provider: 'Provider (optional)', date: 'Date', noAvail: 'No availability', confirm: 'Confirm' },
+const STRINGS: Record<string, { title: string; welcome: string; service: string; provider: string; date: string; noAvail: string; confirm: string; serviceAvail: string; providerAvail: (name?: string) => string }> = {
+  es: {
+    title: 'Reserva',
+    welcome: 'Reserva tu cita',
+    service: 'Servicio',
+    provider: 'Profesional (opcional)',
+    date: 'Fecha',
+    noAvail: 'No hay disponibilidad',
+    confirm: 'Confirmar',
+    serviceAvail: 'Horarios disponibles del servicio',
+    providerAvail: (name?: string) => `Horarios disponibles de ${name || 'profesional'}`,
+  },
+  en: {
+    title: 'Booking',
+    welcome: 'Book your appointment',
+    service: 'Service',
+    provider: 'Provider (optional)',
+    date: 'Date',
+    noAvail: 'No availability',
+    confirm: 'Confirm',
+    serviceAvail: 'Available times (service)',
+    providerAvail: (name?: string) => `Available times (${name || 'provider'})`,
+  },
 }
 
 export default function Booking() {
@@ -29,7 +49,8 @@ export default function Booking() {
   const [serviceId, setServiceId] = useState<number | ''>('')
   const [providerId, setProviderId] = useState<number | ''>('')
   const [date, setDate] = useState('')
-  const [slots, setSlots] = useState<Slot[]>([])
+  const [slotsAll, setSlotsAll] = useState<Slot[]>([])
+  const [slotsProv, setSlotsProv] = useState<Slot[]>([])
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
   const [customerName, setCustomerName] = useState('')
   const [customerEmail, setCustomerEmail] = useState('')
@@ -94,19 +115,23 @@ export default function Booking() {
   useEffect(() => {
     setSelectedSlot(null)
     if (!serviceId || !date) {
-      setSlots([])
+      setSlotsAll([])
+      setSlotsProv([])
       return
     }
     let mounted = true
     ;(async () => {
       try {
-        const s = await getAvailability(
-          businessSlug,
-          Number(serviceId),
-          date,
-          providerId ? Number(providerId) : undefined
-        )
-        if (mounted) setSlots(s)
+        if (providerId) {
+          const [all, prov] = await Promise.all([
+            getAvailability(businessSlug, Number(serviceId), date, undefined),
+            getAvailability(businessSlug, Number(serviceId), date, Number(providerId)),
+          ])
+          if (mounted) { setSlotsAll(all); setSlotsProv(prov) }
+        } else {
+          const all = await getAvailability(businessSlug, Number(serviceId), date, undefined)
+          if (mounted) { setSlotsAll(all); setSlotsProv([]) }
+        }
       } catch (e: any) {
         if (mounted) setError(e.message)
       }
@@ -145,17 +170,26 @@ export default function Booking() {
     }
   }
 
-  // Flat list of slot chips to render side-by-side (time • provider)
-  const flatSlots = useMemo(() => {
-    const provNameById = new Map(providers.map(p => [p.id, p.name]))
-    return [...slots]
+  // Flat lists to render side-by-side (time • provider)
+  const provNameById = useMemo(() => new Map(providers.map(p => [p.id, p.name])), [providers])
+  const flatSlotsAll = useMemo(() => {
+    return [...slotsAll]
       .sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .map(s => ({
         ...s,
         timeLabel: new Date(s.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         providerName: provNameById.get(s.providerId),
       }))
-  }, [slots, providers])
+  }, [slotsAll, provNameById])
+  const flatSlotsProv = useMemo(() => {
+    return [...slotsProv]
+      .sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+      .map(s => ({
+        ...s,
+        timeLabel: new Date(s.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        providerName: provNameById.get(s.providerId),
+      }))
+  }, [slotsProv, provNameById])
 
   const selectedService = useMemo(() => services.find(s => s.id === Number(serviceId)), [services, serviceId])
   const totalMinutes = (selectedService?.durationMinutes || 0) + (selectedService?.bufferBefore || 0) + (selectedService?.bufferAfter || 0)
@@ -253,33 +287,66 @@ export default function Booking() {
           </label>
 
           {date && serviceId && (
-            <div className="grid gap-2">
-              <span className="text-sm">Available times</span>
-              {flatSlots.length === 0 ? (
-                <span className="text-sm text-gray-500">{STRINGS[locale]?.noAvail || 'No availability'}</span>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {flatSlots.map((s) => (
-                    <button
-                      key={s.start + ':' + s.providerId}
-                      type="button"
-                      onClick={() => setSelectedSlot(s)}
-                      className={`h-8 px-3 rounded-full border text-xs transition-colors ${
-                        selectedSlot?.start === s.start && selectedSlot?.providerId === s.providerId
-                          ? 'bg-brand text-white border-brand'
-                          : 'bg-white hover:bg-gray-50 border-gray-300'
-                      }`}
-                      title={typeof s.remaining === 'number' ? (locale==='es' ? (s.remaining===1? 'Queda 1 cupo' : `Quedan ${s.remaining} cupos`) : (s.remaining===1? '1 spot left' : `${s.remaining} spots left`)) : undefined}
-                      disabled={disabledForm}
-                    >
-                      {s.timeLabel}{s.providerName ? ` • ${s.providerName}` : ''}
-                      {typeof s.remaining === 'number' ? (
-                        <span className="ml-2 text-[10px] text-gray-500">{locale==='es' ? `${s.remaining} cupo${s.remaining===1?'':'s'}` : `${s.remaining} spot${s.remaining===1?'':'s'}`}</span>
-                      ) : null}
-                    </button>
-                  ))}
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <span className="text-sm">{STRINGS[locale]?.serviceAvail || 'Available times (service)'}</span>
+                {flatSlotsAll.length === 0 ? (
+                  <span className="text-sm text-gray-500">{STRINGS[locale]?.noAvail || 'No availability'}</span>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {flatSlotsAll.map((s) => (
+                      <button
+                        key={'all:' + s.start + ':' + s.providerId}
+                        type="button"
+                        onClick={() => setSelectedSlot(s)}
+                        className={`h-8 px-3 rounded-full border text-xs transition-colors ${
+                          selectedSlot?.start === s.start && selectedSlot?.providerId === s.providerId
+                            ? 'bg-brand text-white border-brand'
+                            : 'bg-white hover:bg-gray-50 border-gray-300'
+                        }`}
+                        title={typeof s.remaining === 'number' ? (locale==='es' ? (s.remaining===1? 'Queda 1 cupo' : `Quedan ${s.remaining} cupos`) : (s.remaining===1? '1 spot left' : `${s.remaining} spots left`)) : undefined}
+                        disabled={disabledForm}
+                      >
+                        {s.timeLabel}{s.providerName ? ` • ${s.providerName}` : ''}
+                        {typeof s.remaining === 'number' ? (
+                          <span className="ml-2 text-[10px] text-gray-500">{locale==='es' ? `${s.remaining} cupo${s.remaining===1?'':'s'}` : `${s.remaining} spot${s.remaining===1?'':'s'}`}</span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {providerId ? (
+                <div className="grid gap-2">
+                  <span className="text-sm">{STRINGS[locale]?.providerAvail?.(provNameById.get(Number(providerId)) || undefined) || 'Available times (provider)'}</span>
+                  {flatSlotsProv.length === 0 ? (
+                    <span className="text-sm text-gray-500">{STRINGS[locale]?.noAvail || 'No availability'}</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {flatSlotsProv.map((s) => (
+                        <button
+                          key={'prov:' + s.start + ':' + s.providerId}
+                          type="button"
+                          onClick={() => setSelectedSlot(s)}
+                          className={`h-8 px-3 rounded-full border text-xs transition-colors ${
+                            selectedSlot?.start === s.start && selectedSlot?.providerId === s.providerId
+                              ? 'bg-brand text-white border-brand'
+                              : 'bg-white hover:bg-gray-50 border-gray-300'
+                          }`}
+                          title={typeof s.remaining === 'number' ? (locale==='es' ? (s.remaining===1? 'Queda 1 cupo' : `Quedan ${s.remaining} cupos`) : (s.remaining===1? '1 spot left' : `${s.remaining} spots left`)) : undefined}
+                          disabled={disabledForm}
+                        >
+                          {s.timeLabel}
+                          {typeof s.remaining === 'number' ? (
+                            <span className="ml-2 text-[10px] text-gray-500">{locale==='es' ? `${s.remaining} cupo${s.remaining===1?'':'s'}` : `${s.remaining} spot${s.remaining===1?'':'s'}`}</span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+              ) : null}
             </div>
           )}
 
