@@ -62,6 +62,7 @@ export default function Booking() {
   const [themeColor, setThemeColor] = useState<string>('')
   const [bizTexts, setBizTexts] = useState<{ welcome?: string | null; instructions?: string | null; logoUrl?: string | null } | null>(null)
   const [bookingPublic, setBookingPublic] = useState<boolean>(true)
+  const [bizTz, setBizTz] = useState<string | undefined>(undefined)
   const embed = searchParams.get('embed') === '1'
 
   function formatPrice(cents?: number) {
@@ -90,6 +91,7 @@ export default function Booking() {
           logoUrl: (c.business as any)?.logoUrl,
         })
         setBookingPublic(Boolean((c.business as any)?.bookingPublic ?? true))
+        setBizTz((c.business as any)?.tz)
     const requestedLang = searchParams.get('lang') || undefined
     const defLocale = (c.business as any)?.defaultLocale || 'en'
         const lang = (requestedLang || defLocale).split('-')[0]
@@ -177,19 +179,19 @@ export default function Booking() {
       .sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .map(s => ({
         ...s,
-        timeLabel: new Date(s.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timeLabel: new Date(s.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: bizTz || undefined }),
         providerName: provNameById.get(s.providerId),
       }))
-  }, [slotsAll, provNameById])
+  }, [slotsAll, provNameById, bizTz])
   const flatSlotsProv = useMemo(() => {
     return [...slotsProv]
       .sort((a,b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .map(s => ({
         ...s,
-        timeLabel: new Date(s.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timeLabel: new Date(s.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: bizTz || undefined }),
         providerName: provNameById.get(s.providerId),
       }))
-  }, [slotsProv, provNameById])
+  }, [slotsProv, provNameById, bizTz])
 
   const selectedService = useMemo(() => services.find(s => s.id === Number(serviceId)), [services, serviceId])
   const totalMinutes = (selectedService?.durationMinutes || 0) + (selectedService?.bufferBefore || 0) + (selectedService?.bufferAfter || 0)
