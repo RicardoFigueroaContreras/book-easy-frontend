@@ -21,9 +21,8 @@ import { Textarea } from '../../components/ui/textarea'
 export default function Dashboard() {
   const [events, setEvents] = useState<any[]>([])
   const [blockEvents, setBlockEvents] = useState<any[]>([])
-  const [blockWindows, setBlockWindows] = useState<Array<{ start: Date; end: Date }>>([])
-  // Background shading color for business-wide blocks (rgba allows opacity control)
-  const BLOCK_BG = 'rgba(254, 202, 202, 0.35)' // Tailwind red-200 with ~35% opacity
+  const [blockWindows, setBlockWindows] = useState<Array<{ id: number; start: Date; end: Date; reason?: string; providerId?: number; providerName?: string }>>([])
+  // Background style for business-wide blocks is applied via CSS class 'be-blocked' (striped gray)
   const { businessSlug = 'barber-demo' } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const calRef = useRef<FullCalendar | null>(null)
@@ -60,6 +59,7 @@ export default function Dashboard() {
   const [blockOpen, setBlockOpen] = useState(false)
   const [blockStart, setBlockStart] = useState<string>('')
   const [blockEnd, setBlockEnd] = useState<string>('')
+  const [blockProviderId, setBlockProviderId] = useState<string>('')
   const [blockReason, setBlockReason] = useState<string>('')
   const [blockError, setBlockError] = useState<string | null>(null)
   const lastSelectionRef = useRef<{ start: Date; end: Date } | null>(null)
@@ -213,23 +213,52 @@ export default function Dashboard() {
       const all: any[] = await AdminApi.listTimeOff(businessSlug!)
       const start = new Date(startIso).getTime()
       const end = new Date(endIso).getTime()
-      const bizWide = (all || []).filter((t: any) => !t.provider && (t.business || t.businessId))
-      const overlapping = bizWide.filter((t: any) => {
+      const bizWide = (all || []).filter((t: any) => !t.provider && !t.providerId && (t.business || t.businessId))
+      const overlappingBiz = bizWide.filter((t: any) => {
         const s = new Date(t.startTime || t.start || t.begin || t.from).getTime()
         const e = new Date(t.endTime || t.end || t.finish || t.to).getTime()
         return !(isNaN(s) || isNaN(e)) && s < end && e > start
       })
-      const blocks = overlapping.map((t: any) => ({
+      const blocksBiz = overlappingBiz.map((t: any) => ({
         id: `block-${t.id}`,
         start: t.startTime || t.start || t.begin || t.from,
         end: t.endTime || t.end || t.finish || t.to,
         display: 'background' as const,
-        backgroundColor: BLOCK_BG,
+        classNames: ['be-blocked'],
+        extendedProps: { reason: t.reason, timeOffId: t.id },
         overlap: false,
         editable: false,
       }))
-      setBlockEvents(blocks)
-      setBlockWindows(blocks.map(b => ({ start: new Date(b.start), end: new Date(b.end) })))
+      // Provider-specific blocks (only show when a provider is selected to avoid clutter)
+      const provBlocksAll = (all || []).filter((t: any) => (t.providerId || t.provider?.id))
+      const selectedProvId = providerId ? Number(providerId) : null
+      const provFiltered = provBlocksAll.filter((t: any) => selectedProvId ? (Number(t.providerId || t.provider?.id) === selectedProvId) : false)
+      const overlappingProv = provFiltered.filter((t: any) => {
+        const s = new Date(t.startTime || t.start || t.begin || t.from).getTime()
+        const e = new Date(t.endTime || t.end || t.finish || t.to).getTime()
+        return !(isNaN(s) || isNaN(e)) && s < end && e > start
+      })
+      const provNameById = new Map(providers.map(p => [p.id, p.name]))
+      const blocksProv = overlappingProv.map((t: any) => ({
+        id: `block-prov-${t.id}`,
+        start: t.startTime || t.start || t.begin || t.from,
+        end: t.endTime || t.end || t.finish || t.to,
+        display: 'background' as const,
+        classNames: ['be-blocked-prov'],
+        extendedProps: { reason: t.reason, timeOffId: t.id, providerId: Number(t.providerId || t.provider?.id), providerName: provNameById.get(Number(t.providerId || t.provider?.id)) },
+        overlap: false,
+        editable: false,
+      }))
+      const allBlocks = [...blocksBiz, ...blocksProv]
+      setBlockEvents(allBlocks)
+      setBlockWindows(allBlocks.map(b => ({
+        id: Number((b as any)?.extendedProps?.timeOffId),
+        start: new Date((b as any).start),
+        end: new Date((b as any).end),
+        reason: (b as any)?.extendedProps?.reason,
+        providerId: (b as any)?.extendedProps?.providerId,
+        providerName: (b as any)?.extendedProps?.providerName,
+      })))
     } catch (e) {
       console.warn('Failed to fetch business-wide blocks (time-off)', e)
       setBlockEvents([])
@@ -354,11 +383,47 @@ export default function Dashboard() {
           selectMirror
           editable={canEdit}
           events={[...events, ...blockEvents]}
+          eventDidMount={(info) => {
+            // Add tooltip for blocked background events
+            if ((info.event.classNames || []).includes('be-blocked')) {
+              const reason = (info.event.extendedProps as any)?.reason
+              info.el.setAttribute('title', reason ? `Blocked: ${reason}` : 'Blocked')
+              // Make background event clickable for deletion
+              info.el.style.pointerEvents = 'auto'
+              info.el.style.cursor = 'pointer'
+              info.el.addEventListener('click', async (e) => {
+                e.stopPropagation()
+                const blockId = Number((info.event.extendedProps as any)?.timeOffId)
+                if (!blockId) return
+                const ok = window.confirm('Delete this blocked time?')
+                if (!ok) return
+                try {
+                  await AdminApi.deleteTimeOff(businessSlug!, blockId)
+                  const api = (calRef.current as any)?.getApi?.()
+                  const view = api?.view
+                  if (view) {
+                    const start = view.currentStart.toISOString()
+                    const end = view.currentEnd.toISOString()
+                    fetchEvents(start, end)
+                    fetchBlocks(start, end)
+                  }
+                } catch (err) {
+                  alert('Failed to delete blocked time')
+                }
+              })
+            }
+          }}
           selectAllow={(arg) => {
             const start = arg.start
             if (start.getTime() < Date.now()) return false
             // Blocked business-wide windows should not be selectable
-            const isBlocked = blockWindows.some(b => b.start <= start && start < b.end)
+            const isBlocked = blockWindows.some(b => {
+              if (b.providerId) {
+                // Only block selection for provider-specific blocks when that provider is selected
+                return providerId && Number(providerId) === b.providerId && b.start <= start && start < b.end
+              }
+              return b.start <= start && start < b.end
+            })
             return isWithinWorkHours(start) && !isBlocked
           }}
           select={canEdit ? (arg) => {
@@ -446,7 +511,12 @@ export default function Dashboard() {
           }}
           dateClick={canEdit ? (arg) => {
             // Prevent quick booking on blocked business windows
-            const isBlocked = blockWindows.some(b => b.start <= arg.date && arg.date < b.end)
+            const isBlocked = blockWindows.some(b => {
+              if (b.providerId) {
+                return providerId && Number(providerId) === b.providerId && b.start <= arg.date && arg.date < b.end
+              }
+              return b.start <= arg.date && arg.date < b.end
+            })
             if (isBlocked) return
             setQuickStart(arg.date)
             setQuickServiceId(serviceId || '')
@@ -504,6 +574,24 @@ export default function Dashboard() {
             setResStart(toLocalDateTimeInputValue(new Date(evt.start)))
             setResError(null)
             setResOpen(true)
+          }}
+          blocks={blockWindows}
+          onDeleteBlock={async (id) => {
+            const ok = window.confirm('Delete this blocked time?')
+            if (!ok) return
+            try {
+              await AdminApi.deleteTimeOff(businessSlug!, id)
+              const api = (calRef.current as any)?.getApi?.()
+              const view = api?.view
+              if (view) {
+                const start = view.currentStart.toISOString()
+                const end = view.currentEnd.toISOString()
+                fetchEvents(start, end)
+                fetchBlocks(start, end)
+              }
+            } catch (e) {
+              alert('Failed to delete blocked time')
+            }
           }}
         />
       )}
@@ -595,6 +683,7 @@ export default function Dashboard() {
                   const def = defaultBlockWindow()
                   setBlockStart(toLocalDateTimeInputValue(def.start))
                   setBlockEnd(toLocalDateTimeInputValue(def.end))
+                  setBlockProviderId('')
                   setBlockReason('')
                   setBlockError(null)
                   setBlockOpen(true)
@@ -666,6 +755,15 @@ export default function Dashboard() {
             </label>
           </div>
           <label className="grid gap-1">
+            <span className="text-xs text-gray-600">Provider (optional)</span>
+            <Select value={blockProviderId} onChange={(e) => setBlockProviderId(e.target.value)}>
+              <option value="">All (business-wide)</option>
+              {providers.map(p => (
+                <option key={p.id} value={String(p.id)}>{p.name}</option>
+              ))}
+            </Select>
+          </label>
+          <label className="grid gap-1">
             <span className="text-xs text-gray-600">Reason (optional)</span>
             <Input value={blockReason} onChange={(e) => setBlockReason(e.target.value)} />
           </label>
@@ -685,7 +783,7 @@ export default function Dashboard() {
                 setBlockError(null)
                 try {
                   await AdminApi.createTimeOff(businessSlug!, {
-                    provider: null,
+                    provider: blockProviderId ? { id: Number(blockProviderId) } : null,
                     startTime: s.toISOString(),
                     endTime: e.toISOString(),
                     reason: blockReason || undefined,
@@ -785,11 +883,15 @@ function AgendaView({
   canEdit,
   onCancel,
   onReschedule,
+  blocks,
+  onDeleteBlock,
 }: {
   events: EventItem[]
   canEdit: boolean
   onCancel: (evt: EventItem) => void
   onReschedule: (evt: EventItem) => void
+  blocks?: Array<{ start: Date; end: Date; reason?: string }>
+  onDeleteBlock?: (id: number) => void
 }) {
   // Group by date, then sort by hour
   const groups = useMemo(() => {
@@ -819,6 +921,19 @@ function AgendaView({
   }
   const fmtTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
+  // Prepare block list grouped by date
+  const blocksByDate = useMemo(() => {
+    const arr = (blocks || []).slice().sort((a,b) => a.start.getTime() - b.start.getTime())
+    const map = new Map<string, Array<{ start: Date; end: Date; reason?: string }>>()
+    for (const b of arr) {
+      const key = new Date(b.start).toISOString().slice(0,10)
+      const list = map.get(key) || []
+      list.push(b)
+      map.set(key, list)
+    }
+    return map
+  }, [blocks])
+
   return (
     <div className="mt-4">
       {groups.length === 0 ? (
@@ -828,6 +943,28 @@ function AgendaView({
           {groups.map((g) => (
             <div key={g.dateStr} className="">
               <div className="text-sm font-semibold text-gray-700 mb-2">{fmtDate(g.dateStr)}</div>
+              {/* Business-wide blocks for this date */}
+              {(() => {
+                const dayBlocks = blocksByDate.get(g.dateStr) || []
+                if (!dayBlocks.length) return null
+                return (
+                  <div className="mb-2 grid gap-1">
+                    {dayBlocks.map((b, idx) => (
+                      <div key={idx} className="text-xs text-gray-700 border rounded p-2 bg-gray-50 flex items-center justify-between"
+                           style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgba(107,114,128,0.20) 0px, rgba(107,114,128,0.20) 12px, rgba(156,163,175,0.20) 12px, rgba(156,163,175,0.20) 24px)' }}>
+                        <div>
+                          <span className="font-medium">Blocked</span>
+                          <span className="ml-2 text-gray-600">{fmtTime(b.start)}–{fmtTime(b.end)}</span>
+                          {b.reason ? <span className="ml-2 text-gray-600">• {b.reason}</span> : null}
+                        </div>
+                        {onDeleteBlock ? (
+                          <Button variant="outline" className="h-6 px-2 text-[10px]" onClick={() => onDeleteBlock((b as any).id)}>Delete</Button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
               <div className="grid">
                 {g.hours.map((h) => {
                   const hourStart = new Date(g.dateStr + 'T' + String(h).padStart(2,'0') + ':00:00')

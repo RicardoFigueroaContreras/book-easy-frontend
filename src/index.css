@@ -35,3 +35,29 @@ button.btn-primary {
 button.btn-ghost {
   @apply text-gray-700 hover:text-gray-900 text-sm;
 }
+
+/* Calendar: striped gray background for business-wide blocked time */
+.fc .be-blocked {
+  /* Diagonal stripes using two gray tones with transparency */
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(107, 114, 128, 0.35) 0px,
+    rgba(107, 114, 128, 0.35) 12px,
+    rgba(156, 163, 175, 0.35) 12px,
+    rgba(156, 163, 175, 0.35) 24px
+  );
+  /* Fallback background color in case gradients are not supported */
+  background-color: rgba(107, 114, 128, 0.25);
+}
+
+/* Calendar: striped gray-blue background for provider-specific blocked time */
+.fc .be-blocked-prov {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.18) 0px,
+    rgba(59, 130, 246, 0.18) 12px,
+    rgba(107, 114, 128, 0.18) 12px,
+    rgba(107, 114, 128, 0.18) 24px
+  );
+  background-color: rgba(59, 130, 246, 0.12);
+}
