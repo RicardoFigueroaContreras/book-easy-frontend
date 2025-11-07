@@ -12,7 +12,7 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import { getPublicConfig } from '../../lib/api'
 import { AdminApi } from '../../lib/adminApi'
 import { getAccessToken, parseJwtClaims } from '../../lib/adminAuth'
-import { cancelAppointment, rescheduleAppointment, createAppointment } from '../../lib/api'
+import { cancelAppointment, rescheduleAppointment, createAppointment, getAvailability } from '../../lib/api'
 import { API_BASE } from '../../config'
 import { Modal } from '../../components/ui/modal'
 import { Input } from '../../components/ui/input'
@@ -716,6 +716,31 @@ export default function Dashboard() {
                   return b.start <= quickStart && quickStart < b.end
                 })) {
                   setQError('Selected time is blocked business-wide')
+                  return
+                }
+                // Validate availability against server (respects existing appts, buffers and block times)
+                try {
+                  const date = new Date(quickStart)
+                  const yyyy = date.getFullYear()
+                  const mm = String(date.getMonth() + 1).padStart(2,'0')
+                  const dd = String(date.getDate()).padStart(2,'0')
+                  const dayStr = `${yyyy}-${mm}-${dd}`
+                  const slots = await getAvailability(
+                    businessSlug!,
+                    Number(quickServiceId),
+                    dayStr,
+                    quickProviderId ? Number(quickProviderId) : undefined,
+                  )
+                  const tSel = quickStart.getTime()
+                  const match = slots.some(s => {
+                    try { return new Date(s.start).getTime() === tSel } catch { return false }
+                  })
+                  if (!match) {
+                    setQError('Selected time is not available for this service/provider')
+                    return
+                  }
+                } catch (e: any) {
+                  setQError(e?.message || 'Failed to validate availability')
                   return
                 }
                 setQError(null)

@@ -42,14 +42,15 @@ export default function App() {
     }
   }, [])
 
-  // Hide menu option for public booking when explicitly requested via query param
+  // Hide menu option for public booking/dashboard when explicitly requested via query param
   const parts = location.pathname.split('/').filter(Boolean)
   const isBookingPath = parts.length >= 2 && parts[1] === 'booking'
+  const isDashboardPath = parts.length >= 2 && parts[1] === 'dashboard'
   const qs = new URLSearchParams(location.search)
   const menuDisableParam = (qs.get('menudisable') || '').toLowerCase()
   const menuDisabledRequested = menuDisableParam === 'true' || menuDisableParam === '1'
   const isStaffHere = !!tokenPresent && !!role && ['ADMIN','BOOKING'].includes(String(role).toUpperCase()) && !!businessSlug
-  const shouldHideMenu = isBookingPath && menuDisabledRequested && !isStaffHere
+  const shouldHideMenu = (isBookingPath || isDashboardPath) && menuDisabledRequested && !isStaffHere
 
   return (
     <div className="min-h-screen">
